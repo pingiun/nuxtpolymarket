@@ -42,7 +42,8 @@ const activeGameItems: NavigationMenuItem[] = [
   { label: 'Pathwarden', class: 'mb-1', icon: 'i-lucide-castle', to: '/pathwarden' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
   { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
-  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' }
+  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' },
+  { label: 'TCG', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg' }
 ]
 
 const slotItems: NavigationMenuItem[] = [
@@ -60,6 +61,10 @@ const casinoItems: NavigationMenuItem[] = [
   { label: 'Wheel', class: 'mb-1', icon: 'i-lucide-loader-pinwheel', to: '/games/wheel' },
   { label: 'Magic Hands', class: 'mb-1', icon: 'i-lucide-hand', to: '/games/magichands' },
   { label: 'Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/blackjack' }
+]
+
+const adminItems: NavigationMenuItem[] = [
+  { label: 'TCG Admin', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg-admin' }
 ]
 
 const primaryColors = [
@@ -210,6 +215,22 @@ function setNeutral(color: string) {
           :items="slotItems"
           orientation="vertical"
         />
+
+        <template v-if="user?.isPokemonAdmin">
+          <USeparator class="my-3" />
+
+          <p
+            v-if="state !== 'collapsed'"
+            class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
+          >
+            Admin
+          </p>
+          <UNavigationMenu
+            :collapsed="state === 'collapsed'"
+            :items="adminItems"
+            orientation="vertical"
+          />
+        </template>
       </template>
 
       <!-- Footer -->
