@@ -48,7 +48,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
+import { ref, reactive, shallowRef, markRaw, watch, onMounted, onUnmounted, computed } from 'vue'
+import type { Raw } from 'vue'
 import * as PIXI from 'pixi.js'
 
 interface Tower {
@@ -59,7 +60,7 @@ interface Tower {
     lastShot: number
     damage: number
     level: number
-    graphics: PIXI.Graphics
+    graphics: Raw<PIXI.Graphics>
 }
 
 interface Enemy {
@@ -71,7 +72,7 @@ interface Enemy {
     maxHealth: number
     speed: number
     radius: number
-    graphics: PIXI.Graphics
+    graphics: Raw<PIXI.Graphics>
 }
 
 interface Projectile {
@@ -82,11 +83,11 @@ interface Projectile {
     radius: number
     damage: number
     targetId: number
-    graphics: PIXI.Graphics
+    graphics: Raw<PIXI.Graphics>
 }
 
 const gameContainer = ref<HTMLElement | null>(null)
-const app = ref<PIXI.Application | null>(null)
+const app = shallowRef<PIXI.Application | null>(null)
 let gameRunning = true
 let lastEnemySpawn = 0
 let tower1Count = 0
@@ -153,12 +154,10 @@ function buyUpgrade(id: string) {
 
     gameState.gold -= upgrade.cost
 
-    if (id === 'tower1') {
-        tower1Count++
-        placeRandomTower(upgrade.damage, upgrade.fireRate, upgrade.radius)
-    } else if (id === 'tower2') {
-        tower2Count++
-        placeRandomTower(upgrade.damage, upgrade.fireRate, upgrade.radius)
+    if (id === 'tower1' || id === 'tower2') {
+        if (id === 'tower1') tower1Count++
+        else tower2Count++
+        placeRandomTower(upgrade.damage ?? 0, upgrade.fireRate ?? 0.5, upgrade.radius ?? 150)
     } else if (id === 'health') {
         gameState.health = Math.min(100, gameState.health + (upgrade.health || 0))
     } else if (id === 'upgrade-towers') {
@@ -182,22 +181,23 @@ function placeRandomTower(damage: number, fireRate: number, radius: number) {
         lastShot: Date.now(),
         damage,
         level: 1,
-        graphics: new PIXI.Graphics()
+        graphics: markRaw(new PIXI.Graphics())
     }
 
     drawTower(tower)
+    tower.graphics.x = tower.x
+    tower.graphics.y = tower.y
     app.value.stage.addChild(tower.graphics)
     gameState.towers.push(tower)
 }
 
 function drawTower(tower: Tower) {
     tower.graphics.clear()
-    tower.graphics.lineStyle(2, 0xffd700)
-    tower.graphics.beginFill(0xaa8844)
-    tower.graphics.drawRect(tower.x - 15, tower.y - 15, 30, 30)
-    tower.graphics.endFill()
-    tower.graphics.lineStyle(1, 0xffff00)
-    tower.graphics.drawCircle(tower.x, tower.y, tower.radius)
+    tower.graphics.rect(-15, -15, 30, 30)
+        .fill(0xaa8844)
+        .stroke({ width: 2, color: 0xffd700 })
+    tower.graphics.circle(0, 0, tower.radius)
+        .stroke({ width: 1, color: 0xffff00 })
 }
 
 function spawnEnemy() {
@@ -220,23 +220,23 @@ function spawnEnemy() {
         maxHealth: 20 + gameState.wave * 5,
         speed,
         radius: 8,
-        graphics: new PIXI.Graphics()
+        graphics: markRaw(new PIXI.Graphics())
     }
 
     drawEnemy(enemy)
+    enemy.graphics.x = enemy.x
+    enemy.graphics.y = enemy.y
     app.value.stage.addChild(enemy.graphics)
     gameState.enemies.push(enemy)
 }
 
 function drawEnemy(enemy: Enemy) {
     enemy.graphics.clear()
-    enemy.graphics.beginFill(0xff3333)
-    enemy.graphics.drawCircle(enemy.x, enemy.y, enemy.radius)
-    enemy.graphics.endFill()
+    enemy.graphics.circle(0, 0, enemy.radius).fill(0xff3333)
 
     const hpPercent = enemy.health / enemy.maxHealth
-    enemy.graphics.lineStyle(2, hpPercent > 0.5 ? 0x00ff00 : 0xff6600)
-    enemy.graphics.drawCircle(enemy.x, enemy.y, enemy.radius + 3)
+    enemy.graphics.circle(0, 0, enemy.radius + 3)
+        .stroke({ width: 2, color: hpPercent > 0.5 ? 0x00ff00 : 0xff6600 })
 }
 
 function createProjectile(fromTower: Tower, toEnemy: Enemy) {
@@ -255,12 +255,12 @@ function createProjectile(fromTower: Tower, toEnemy: Enemy) {
         radius: 4,
         damage: fromTower.damage,
         targetId: -1,
-        graphics: new PIXI.Graphics()
+        graphics: markRaw(new PIXI.Graphics())
     }
 
-    projectile.graphics.beginFill(0xffff00)
-    projectile.graphics.drawCircle(projectile.x, projectile.y, projectile.radius)
-    projectile.graphics.endFill()
+    projectile.graphics.circle(0, 0, projectile.radius).fill(0xffff00)
+    projectile.graphics.x = projectile.x
+    projectile.graphics.y = projectile.y
 
     app.value.stage.addChild(projectile.graphics)
     gameState.projectiles.push(projectile)
@@ -314,7 +314,7 @@ function update() {
 
     // Update projectiles
     for (let i = gameState.projectiles.length - 1; i >= 0; i--) {
-        const proj = gameState.projectiles[i]
+        const proj = gameState.projectiles[i]!
         proj.x += proj.vx
         proj.y += proj.vy
         proj.graphics.x = proj.x
@@ -323,7 +323,7 @@ function update() {
         // Check collisions
         let hit = false
         for (let j = gameState.enemies.length - 1; j >= 0; j--) {
-            const enemy = gameState.enemies[j]
+            const enemy = gameState.enemies[j]!
             const dx = enemy.x - proj.x
             const dy = enemy.y - proj.y
             if (Math.sqrt(dx * dx + dy * dy) < proj.radius + enemy.radius) {
@@ -348,7 +348,7 @@ function update() {
 
     // Update enemies
     for (let i = gameState.enemies.length - 1; i >= 0; i--) {
-        const enemy = gameState.enemies[i]
+        const enemy = gameState.enemies[i]!
         enemy.x += enemy.vx
         enemy.y += enemy.vy
 
@@ -377,45 +377,53 @@ function update() {
     }
 }
 
-onMounted(async () => {
-    if (!gameContainer.value) return
-
-    app.value = new PIXI.Application({
-        width: gameContainer.value.clientWidth,
-        height: gameContainer.value.clientHeight,
+async function setupGame(container: HTMLElement) {
+    const pixiApp = new PIXI.Application()
+    await pixiApp.init({
+        width: container.clientWidth,
+        height: container.clientHeight,
         backgroundColor: 0x1a1a2e,
         antialias: true
     })
+    app.value = pixiApp
 
-    gameContainer.value.appendChild(app.value.canvas)
+    container.appendChild(pixiApp.canvas)
 
     // Draw background
     const background = new PIXI.Graphics()
-    background.beginFill(0x0f3460)
-    background.drawRect(0, 0, app.value.width, app.value.height)
-    background.endFill()
-    app.value.stage.addChild(background)
+    background.rect(0, 0, pixiApp.screen.width, pixiApp.screen.height).fill(0x0f3460)
+    pixiApp.stage.addChild(background)
 
     // Draw path
     const path = new PIXI.Graphics()
-    path.lineStyle(40, 0x4a4e69, 0.3)
     path.moveTo(-20, 100)
     path.lineTo(200, 50)
     path.lineTo(600, 80)
     path.lineTo(850, 200)
-    app.value.stage.addChild(path)
+    path.stroke({ width: 40, color: 0x4a4e69, alpha: 0.3 })
+    pixiApp.stage.addChild(path)
 
     // Game loop
-    const ticker = app.value.ticker
+    const ticker = pixiApp.ticker
     ticker.add(() => {
         update()
     })
 
     // Click to place towers (debug)
-    gameContainer.value.addEventListener('click', (e) => {
+    container.addEventListener('click', (_e) => {
         if (isPaused.value) return
         // Commented out for now - upgrades only via UI
     })
+}
+
+onMounted(() => {
+    // Inside a .client component the template ref can lag the mount hook by
+    // a tick on the first real page load — wait for it instead of bailing.
+    const stop = watch(gameContainer, (el) => {
+        if (!el) return
+        stop()
+        void setupGame(el)
+    }, { immediate: true })
 })
 
 onUnmounted(() => {
