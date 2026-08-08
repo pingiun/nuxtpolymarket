@@ -129,7 +129,7 @@ async function handleGameResponse(data: GameResponse, opts?: { preserveDealerHan
 
 onMounted(async () => {
   try {
-    const data = await $fetch('/api/games/blackjack/resume') as {
+    const data = await apiFetch<import('nitropack/types').InternalApi['/api/games/blackjack/resume']['get']>('/api/games/blackjack/resume') as {
       active: boolean; clientState: BlackjackClientState | null; balance: number
     }
     applyBalance(data.balance)
@@ -150,7 +150,7 @@ async function startGame() {
   gameState.value = null
 
   try {
-    const data = await $fetch('/api/games/blackjack/start', {
+    const data = await apiFetch<import('nitropack/types').InternalApi['/api/games/blackjack/start']['post']>('/api/games/blackjack/start', {
       method: 'POST',
       body: { bet: bet.value },
     }) as GameResponse
@@ -171,7 +171,7 @@ async function doAction(action: BlackjackAction) {
   errorMsg.value = ''
 
   try {
-    const data = await $fetch('/api/games/blackjack/action', {
+    const data = await apiFetch<import('nitropack/types').InternalApi['/api/games/blackjack/action']['post']>('/api/games/blackjack/action', {
       method: 'POST',
       body: { action },
     }) as GameResponse
