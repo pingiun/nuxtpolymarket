@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, reactive, markRaw, onMounted, onUnmounted, computed, type Raw } from 'vue'
+import { ref, shallowRef, reactive, markRaw, watch, onMounted, onUnmounted, computed, type Raw } from 'vue'
 import * as PIXI from 'pixi.js'
 
 // Pixi display objects are mutated every frame and hold cyclic scene-graph
@@ -388,10 +388,20 @@ function update() {
 let destroyed = false
 
 onMounted(async () => {
-    if (!gameContainer.value) return
+    // The template ref can lag the mount hook inside a .client component on
+    // the first real page load — wait for it instead of rendering nothing.
+    const container = gameContainer.value ?? await new Promise<HTMLElement>((resolve) => {
+        const stop = watch(gameContainer, (el) => {
+            if (el) {
+                stop()
+                resolve(el)
+            }
+        })
+    })
+    if (destroyed) return
 
-    const width = gameContainer.value.clientWidth
-    const height = gameContainer.value.clientHeight
+    const width = container.clientWidth
+    const height = container.clientHeight
 
     const pixiApp = new PIXI.Application()
     await pixiApp.init({
@@ -407,7 +417,7 @@ onMounted(async () => {
     }
 
     app.value = pixiApp
-    gameContainer.value.appendChild(pixiApp.canvas)
+    container.appendChild(pixiApp.canvas)
 
     // Draw background
     const background = new PIXI.Graphics()
