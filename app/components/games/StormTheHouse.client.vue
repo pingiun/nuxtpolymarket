@@ -48,10 +48,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, shallowRef, markRaw, watch, onMounted, onUnmounted, computed } from 'vue'
-import type { Raw } from 'vue'
+import { ref, shallowRef, reactive, markRaw, watch, onMounted, onUnmounted, computed, type Raw } from 'vue'
 import * as PIXI from 'pixi.js'
 
+// Pixi display objects are mutated every frame and hold cyclic scene-graph
+// references, so they are kept raw rather than wrapped in a reactive proxy.
 interface Tower {
     x: number
     y: number
@@ -86,12 +87,22 @@ interface Projectile {
     graphics: Raw<PIXI.Graphics>
 }
 
+interface UpgradeBase {
+    name: string
+    description: string
+    cost: number
+    count: number
+}
+
+type Upgrade =
+    | (UpgradeBase & { id: 'tower1' | 'tower2', damage: number, fireRate: number, radius: number })
+    | (UpgradeBase & { id: 'health', health: number })
+    | (UpgradeBase & { id: 'upgrade-towers', damage: number })
+
 const gameContainer = ref<HTMLElement | null>(null)
 const app = shallowRef<PIXI.Application | null>(null)
 let gameRunning = true
 let lastEnemySpawn = 0
-let tower1Count = 0
-let tower2Count = 0
 
 const gameState = reactive({
     gold: 200,
@@ -104,18 +115,18 @@ const gameState = reactive({
 
 const isPaused = ref(false)
 const pauseCountdown = ref(0)
-let waveTimer = 0
+const waveTimer = ref(0)
 let pauseTimer = 0
 
-const waveCountdown = computed(() => Math.max(0, 25 - (waveTimer % 25)))
+const waveCountdown = computed(() => Math.max(0, 25 - (waveTimer.value % 25)))
 
-const upgrades = ref([
+const upgrades = ref<Upgrade[]>([
     {
         id: 'tower1',
         name: 'Stone Tower',
         description: 'Basic defensive tower',
         cost: 50,
-        count: computed(() => tower1Count),
+        count: 0,
         damage: 10,
         fireRate: 0.5,
         radius: 150
@@ -125,7 +136,7 @@ const upgrades = ref([
         name: 'Cannon',
         description: 'Slower, stronger shots',
         cost: 100,
-        count: computed(() => tower2Count),
+        count: 0,
         damage: 25,
         fireRate: 0.3,
         radius: 200
@@ -153,16 +164,15 @@ function buyUpgrade(id: string) {
     if (!upgrade || gameState.gold < upgrade.cost) return
 
     gameState.gold -= upgrade.cost
+    upgrade.count++
 
-    if (id === 'tower1' || id === 'tower2') {
-        if (id === 'tower1') tower1Count++
-        else tower2Count++
-        placeRandomTower(upgrade.damage ?? 0, upgrade.fireRate ?? 0.5, upgrade.radius ?? 150)
-    } else if (id === 'health') {
-        gameState.health = Math.min(100, gameState.health + (upgrade.health || 0))
-    } else if (id === 'upgrade-towers') {
+    if (upgrade.id === 'tower1' || upgrade.id === 'tower2') {
+        placeRandomTower(upgrade.damage, upgrade.fireRate, upgrade.radius)
+    } else if (upgrade.id === 'health') {
+        gameState.health = Math.min(100, gameState.health + upgrade.health)
+    } else {
         gameState.towers.forEach(tower => {
-            tower.damage += upgrade.damage || 0
+            tower.damage += upgrade.damage
         })
     }
 }
@@ -185,30 +195,22 @@ function placeRandomTower(damage: number, fireRate: number, radius: number) {
     }
 
     drawTower(tower)
-    tower.graphics.x = tower.x
-    tower.graphics.y = tower.y
     app.value.stage.addChild(tower.graphics)
     gameState.towers.push(tower)
 }
 
 function drawTower(tower: Tower) {
     tower.graphics.clear()
-    tower.graphics.rect(-15, -15, 30, 30)
-        .fill(0xaa8844)
-        .stroke({ width: 2, color: 0xffd700 })
-    tower.graphics.circle(0, 0, tower.radius)
-        .stroke({ width: 1, color: 0xffff00 })
+    tower.graphics.lineStyle(2, 0xffd700)
+    tower.graphics.beginFill(0xaa8844)
+    tower.graphics.drawRect(tower.x - 15, tower.y - 15, 30, 30)
+    tower.graphics.endFill()
+    tower.graphics.lineStyle(1, 0xffff00)
+    tower.graphics.drawCircle(tower.x, tower.y, tower.radius)
 }
 
 function spawnEnemy() {
     if (!app.value || !gameRunning) return
-
-    const path = [
-        { x: -20, y: 100 },
-        { x: 200, y: 50 },
-        { x: 600, y: 80 },
-        { x: 850, y: 200 }
-    ]
 
     const speed = 1 + (gameState.wave * 0.1)
     const enemy: Enemy = {
@@ -224,19 +226,19 @@ function spawnEnemy() {
     }
 
     drawEnemy(enemy)
-    enemy.graphics.x = enemy.x
-    enemy.graphics.y = enemy.y
     app.value.stage.addChild(enemy.graphics)
     gameState.enemies.push(enemy)
 }
 
 function drawEnemy(enemy: Enemy) {
     enemy.graphics.clear()
-    enemy.graphics.circle(0, 0, enemy.radius).fill(0xff3333)
+    enemy.graphics.beginFill(0xff3333)
+    enemy.graphics.drawCircle(enemy.x, enemy.y, enemy.radius)
+    enemy.graphics.endFill()
 
     const hpPercent = enemy.health / enemy.maxHealth
-    enemy.graphics.circle(0, 0, enemy.radius + 3)
-        .stroke({ width: 2, color: hpPercent > 0.5 ? 0x00ff00 : 0xff6600 })
+    enemy.graphics.lineStyle(2, hpPercent > 0.5 ? 0x00ff00 : 0xff6600)
+    enemy.graphics.drawCircle(enemy.x, enemy.y, enemy.radius + 3)
 }
 
 function createProjectile(fromTower: Tower, toEnemy: Enemy) {
@@ -258,9 +260,9 @@ function createProjectile(fromTower: Tower, toEnemy: Enemy) {
         graphics: markRaw(new PIXI.Graphics())
     }
 
-    projectile.graphics.circle(0, 0, projectile.radius).fill(0xffff00)
-    projectile.graphics.x = projectile.x
-    projectile.graphics.y = projectile.y
+    projectile.graphics.beginFill(0xffff00)
+    projectile.graphics.drawCircle(projectile.x, projectile.y, projectile.radius)
+    projectile.graphics.endFill()
 
     app.value.stage.addChild(projectile.graphics)
     gameState.projectiles.push(projectile)
@@ -274,13 +276,13 @@ function update() {
         if (pauseTimer >= 25) {
             isPaused.value = false
             pauseTimer = 0
-            waveTimer = 0
+            waveTimer.value = 0
             gameState.wave++
         }
         return
     }
 
-    waveTimer += 1 / 60
+    waveTimer.value += 1 / 60
 
     // Spawn enemies every 1s
     lastEnemySpawn += 1 / 60
@@ -290,7 +292,7 @@ function update() {
     }
 
     // Pause every 25 seconds
-    if (waveTimer >= 25) {
+    if (waveTimer.value >= 25) {
         isPaused.value = true
         pauseTimer = 0
     }
@@ -314,7 +316,9 @@ function update() {
 
     // Update projectiles
     for (let i = gameState.projectiles.length - 1; i >= 0; i--) {
-        const proj = gameState.projectiles[i]!
+        const proj = gameState.projectiles[i]
+        if (!proj) continue
+
         proj.x += proj.vx
         proj.y += proj.vy
         proj.graphics.x = proj.x
@@ -323,7 +327,9 @@ function update() {
         // Check collisions
         let hit = false
         for (let j = gameState.enemies.length - 1; j >= 0; j--) {
-            const enemy = gameState.enemies[j]!
+            const enemy = gameState.enemies[j]
+            if (!enemy) continue
+
             const dx = enemy.x - proj.x
             const dy = enemy.y - proj.y
             if (Math.sqrt(dx * dx + dy * dy) < proj.radius + enemy.radius) {
@@ -348,12 +354,14 @@ function update() {
 
     // Update enemies
     for (let i = gameState.enemies.length - 1; i >= 0; i--) {
-        const enemy = gameState.enemies[i]!
+        const enemy = gameState.enemies[i]
+        if (!enemy) continue
+
         enemy.x += enemy.vx
         enemy.y += enemy.vy
 
         // Wobble movement
-        enemy.y += Math.sin(waveTimer * 2 + i) * 0.3
+        enemy.y += Math.sin(waveTimer.value * 2 + i) * 0.3
 
         drawEnemy(enemy)
         enemy.graphics.x = enemy.x
@@ -377,58 +385,67 @@ function update() {
     }
 }
 
-async function setupGame(container: HTMLElement) {
+let destroyed = false
+
+onMounted(async () => {
+    // The template ref can lag the mount hook inside a .client component on
+    // the first real page load — wait for it instead of rendering nothing.
+    const container = gameContainer.value ?? await new Promise<HTMLElement>((resolve) => {
+        const stop = watch(gameContainer, (el) => {
+            if (el) {
+                stop()
+                resolve(el)
+            }
+        })
+    })
+    if (destroyed) return
+
+    const width = container.clientWidth
+    const height = container.clientHeight
+
     const pixiApp = new PIXI.Application()
     await pixiApp.init({
-        width: container.clientWidth,
-        height: container.clientHeight,
+        width,
+        height,
         backgroundColor: 0x1a1a2e,
         antialias: true
     })
-    app.value = pixiApp
 
+    if (destroyed) {
+        pixiApp.destroy(true)
+        return
+    }
+
+    app.value = pixiApp
     container.appendChild(pixiApp.canvas)
 
     // Draw background
     const background = new PIXI.Graphics()
-    background.rect(0, 0, pixiApp.screen.width, pixiApp.screen.height).fill(0x0f3460)
+    background.beginFill(0x0f3460)
+    background.drawRect(0, 0, width, height)
+    background.endFill()
     pixiApp.stage.addChild(background)
 
     // Draw path
     const path = new PIXI.Graphics()
+    path.lineStyle(40, 0x4a4e69, 0.3)
     path.moveTo(-20, 100)
     path.lineTo(200, 50)
     path.lineTo(600, 80)
     path.lineTo(850, 200)
-    path.stroke({ width: 40, color: 0x4a4e69, alpha: 0.3 })
     pixiApp.stage.addChild(path)
 
     // Game loop
-    const ticker = pixiApp.ticker
-    ticker.add(() => {
+    pixiApp.ticker.add(() => {
         update()
     })
-
-    // Click to place towers (debug)
-    container.addEventListener('click', (_e) => {
-        if (isPaused.value) return
-        // Commented out for now - upgrades only via UI
-    })
-}
-
-onMounted(() => {
-    // Inside a .client component the template ref can lag the mount hook by
-    // a tick on the first real page load — wait for it instead of bailing.
-    const stop = watch(gameContainer, (el) => {
-        if (!el) return
-        stop()
-        void setupGame(el)
-    }, { immediate: true })
 })
 
 onUnmounted(() => {
+    destroyed = true
     if (app.value) {
         app.value.destroy(true)
+        app.value = null
     }
 })
 </script>
